@@ -1,23 +1,30 @@
 import pandas as pd
-from openpyxl import Workbook
 from bs4 import BeautifulSoup
 import requests
 
-# Script para consultar TSE por cedula recibiendo datos por archivo xlsx#
+# Script para consultar TSE por cedula recibiendo datos por archivo xlsx
 
-
-# Excel#
+# Excel
 
 xl = pd.ExcelFile("cedulas.xlsx")
-df = xl.parse("Hoja1")
-cedula = df['Cedula'][0]
+df1 = xl.parse("Hoja1")
 
-# Web Scraping#
+
+
+# Web Scraping
 
 urlConsulta = 'https://servicioselectorales.tse.go.cr/chc/consulta_cedula.aspx'
 urlPersona = 'https://servicioselectorales.tse.go.cr/chc/resultado_persona.aspx'
 print(urlPersona, urlConsulta)
-payload = {
+
+# Create an empty DataFrame to store all scraped data
+all_data = pd.DataFrame()
+
+# Loop through each row in the Excel file
+for index, row in df1.iterrows():
+    cedula = row['Cedula']
+
+    payload = {
     'ScriptManager1': 'UpdatePanel1|btnConsultaCedula',
     '__LASTFOCUS': "",
     '__EVENTTARGET': "",
@@ -30,20 +37,50 @@ payload = {
     'comentario': "",
     '__ASYNCPOST': "True",
     'btnConsultaCedula': 'Consultar'
-}
+    }
 
-with requests.session() as s:
-    s.post(urlConsulta, data=payload)
-    r = s.get(urlPersona)
+# Request to start a session with site
+    with requests.session() as s:
+        s.post(urlConsulta, data=payload)
+        r = s.get(urlPersona)
+
+    # Parsing HTML and finding element table
     soup = BeautifulSoup(r.content, 'html.parser')
-    # print(soup.prettify()) #
-    table = soup.find('table', id="TABLE1")
 
-    for row in table.find_all("tr"):
-        row_data = []
-        for cell in row.find_all(["th", "td"]):
-            row_data.append(cell.get_text(strip=True))
-        print(" | ".join(row_data))
+    # Find elements with the sp ecified IDs
+    labels = ["Label8", "Label7", "Label9"]  # IDs for "Nombre Completo", "Fecha Nacimiento", and "Nacionalidad"
+    data_dict = {"Cedula": cedula} # Add cedula to data dictionary
+
+    for label_id in labels:
+        label_element = soup.find("span", {"id": label_id})
+        if label_element:
+            label_text = label_element.text.strip()
+            value_element = label_element.find_next("span")
+            if value_element:
+                value = value_element.text.strip()
+                value = value.replace("Ă", "Ñ")
+                data_dict[label_text] = value
+
+    # Create a DataFrame from the new data
+    new_data = pd.DataFrame([data_dict])
+
+    # Load the existing Excel file if it exists, otherwise create a new DataFrame
+    excel_filename = "scraped_data.xlsx"
+    try:
+        existing_data = pd.read_excel(excel_filename)
+    except FileNotFoundError:
+        existing_data = pd.DataFrame()
+
+    # Append new data to the existing DataFrame
+    updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+
+    # Save the updated DataFrame to the Excel file
+    updated_data.to_excel(excel_filename, index=False)
+
+    print(f"New data inserted and saved to '{excel_filename}'")
+
+
+
 
 
 
